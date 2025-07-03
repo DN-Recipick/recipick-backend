@@ -1,0 +1,22 @@
+# VSCode 설정
+.vscode/
+
+# Deno lock 파일
+**/deno.lock
+
+# npm 설정 파일
+**/.npmrc
+
+# 임시 파일
+.temp/
+*.tmp
+
+# 환경설정 파일
+config.toml
+
+# node_modules (혹시 있을 경우)
+node_modules/
+
+# OS별 임시 파일
+.DS_Store
+Thumbs.db
