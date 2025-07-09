@@ -10,7 +10,8 @@ function extractVideoId(url: string): string | null {
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
     /youtube\.com\/v\/([^&\n?#]+)/,
-    /youtube\.com\/watch\?.*v=([^&\n?#]+)/
+    /youtube\.com\/watch\?.*v=([^&\n?#]+)/,
+    /youtube\.com\/shorts\/([a-zA-Z0-9_-]+)/ // 쇼츠 패턴 추가
   ];
   
   for (const pattern of patterns) {
@@ -85,8 +86,11 @@ serve(async (req1: any) => {
           .eq("recipe_id", id)
           .single();
         
+        let isMine = true;
+
         if (userRecipeError || !userRecipe) {
-          return jsonResponse("Recipe not found or access denied", 404);
+          isMine = false;
+          // return jsonResponse("Recipe not found or access denied", 404);
         }
         
         // recipe 테이블에서 레시피 정보 가져오기
@@ -100,7 +104,8 @@ serve(async (req1: any) => {
           return jsonResponse("Recipe not found", 404);
         }
         
-        return jsonResponse(recipe);
+        // isMine 키 추가
+        return jsonResponse({ ...recipe, is_mine: isMine });
         
       } catch (err) {
         console.error("Error fetching recipe detail:", err);
@@ -222,7 +227,7 @@ serve(async (req1: any) => {
         console.log(`New recipe created with video_id: ${videoId}`);
         
         // 외부 서버에 비동기 요청 보내기 (응답을 기다리지 않음)
-        fetch("https://kgmlwbdrhyuzgixvsyms.supabase.co/functions/v1/aimock", {
+        fetch("http://140.245.70.92/process", {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
@@ -293,6 +298,7 @@ serve(async (req1: any) => {
         return jsonResponse("Database update error", 500);
       }
       
+      console.log("Recipe updated successfully", recipe_id, video_id, title, name, channel, item, ingredients);
       return jsonResponse({
         message: "Recipe updated successfully",
         recipe_id: recipe_id,
@@ -305,6 +311,48 @@ serve(async (req1: any) => {
     }
   }
 
-  
+  // POST /recipe/:id/add - 유저와 레시피 관계 추가
+  if (method === "POST") {
+    const addMatch = pathname.match(/^\/recipe\/([^\/]+)\/add$/);
+    if (addMatch) {
+      const recipeId = addMatch[1];
+      // JWT 토큰에서 유저 정보 추출
+      const authHeader = req1.headers.get('Authorization');
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return jsonResponse("Unauthorized - Missing or invalid token", 401);
+      }
+      const token = authHeader.replace('Bearer ', '');
+      const supabaseClient = supabase(req1);
+      // 토큰 검증 및 유저 정보 가져오기
+      const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
+      if (authError || !user) {
+        return jsonResponse("Unauthorized - Invalid token", 401);
+      }
+      // 이미 관계가 있는지 확인
+      const { data: existing, error: existError } = await supabaseClient
+        .from("user_recipe")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("recipe_id", recipeId)
+        .single();
+      if (existing) {
+        return jsonResponse({ message: "User already linked to recipe" }, 409);
+      }
+      // 관계 추가
+      const { error: insertError } = await supabaseClient
+        .from("user_recipe")
+        .insert({
+          user_id: user.id,
+          recipe_id: recipeId,
+          created_at: new Date().toISOString()
+        });
+      if (insertError) {
+        console.error("User recipe insert error (add endpoint):", insertError);
+        return jsonResponse("Failed to link user with recipe", 500);
+      }
+      return jsonResponse({ message: "Recipe linked to user", recipe_id: recipeId, user_id: user.id }, 201);
+    }
+  }
+
   return jsonResponse("Method Not Allowed", 405);
 });
